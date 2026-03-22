@@ -7,6 +7,40 @@ This project now focuses on one main step:
 3. Map extracted values to attributes from `Fichier de données.xlsx`
 4. Export final dataset to Excel
 
+## QUICKSTART (on another PC)
+
+```bash
+# 1. Clone the repo
+git clone git@github.com:laporte-0/Cassiop-e.git
+cd Cassiop-e
+
+# 2. Make launcher executable
+chmod +x run.sh
+
+# 3. Prepare your links (one URL per line)
+# - Use existing working_links.txt, or
+# - Copy your own file: cp your_links.txt working_links.txt
+
+# 4. Start Tor + Privoxy (if using .onion pages)
+# Ubuntu/Debian:
+sudo apt install -y tor privoxy
+sudo systemctl start tor privoxy
+
+# 5. Run with one simple command
+./run.sh
+
+# Output: resultats_posts_scraped.xlsx (in same folder)
+```
+
+If you need custom files:
+```bash
+./run.sh -i
+# or
+./run.sh -n your_links.csv -o my_output.xlsx
+```
+
+---
+
 ## 1) Environment setup
 
 ```bash
@@ -24,18 +58,45 @@ The Scrapy script expects an HTTP proxy for onion pages (for example Tor + Privo
 
 If your stack is SOCKS-only, keep using the existing non-Scrapy flow or add an HTTP bridge.
 
-## 3) Run the unified scraper
+## 3) Run (short commands)
 
-Default run (uses `working_links.txt`):
+Make launcher executable once:
 
 ```bash
-python crawl_posts_with_scrapy.py \
-  --input working_links.txt \
-  --template-file "Fichier de données.xlsx" \
-  --source-file "Cassiopée Envoi2 Cactus à CryptOn.xlsx" \
-  --tor-proxy "http://127.0.0.1:8118" \
-  --output resultats_posts_scraped.xlsx
+chmod +x run.sh
 ```
+
+Then use one command:
+
+```bash
+./run.sh
+```
+
+This uses default files in the project folder and writes:
+
+- `resultats_posts_scraped.xlsx`
+
+Interactive mode (prompts instead of long flags):
+
+```bash
+./run.sh -i
+```
+
+Short custom run example:
+
+```bash
+./run.sh -n working_links.txt -o result.xlsx
+```
+
+Change proxy without long command:
+
+```bash
+TOR_HTTP_PROXY="http://127.0.0.1:8118" ./run.sh
+```
+
+You can still run python script directly if needed.
+
+## 3.b) Direct python mode (optional)
 
 CSV/XLSX input example:
 
