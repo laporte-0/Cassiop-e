@@ -68,6 +68,41 @@ def detect_url_column(df: pd.DataFrame) -> str:
     return best_column
 
 
+def extract_url_candidates_from_line(line: str) -> list[str]:
+    text = (line or "").strip()
+    if not text:
+        return []
+
+    candidates: list[str] = []
+
+    # First: explicit http/https links anywhere in the line.
+    for match in re.findall(r"https?://[^\s\]\[\)\(\"'<>]+", text, flags=re.IGNORECASE):
+        candidates.append(match.strip())
+
+    # Second: token-based fallback for lines like "BASE: xxx.onion/path".
+    tokens = [token.strip(" ,;\t\r\n\"'()[]{}") for token in text.split()]
+    for token in tokens:
+        if not token:
+            continue
+        low = token.lower()
+        if low.startswith(("base:", "url:", "link:")):
+            token = token.split(":", 1)[1].strip()
+            if not token:
+                continue
+            low = token.lower()
+        if ".onion" in low or re.search(r"\.[a-z]{2,}([/:]|$)", low):
+            candidates.append(token)
+
+    # Preserve order while deduplicating.
+    unique: list[str] = []
+    seen: set[str] = set()
+    for value in candidates:
+        if value not in seen:
+            unique.append(value)
+            seen.add(value)
+    return unique
+
+
 def load_links(path: Path, url_column: str | None) -> list[str]:
     if not path.exists():
         raise FileNotFoundError(f"Input file not found: {path}")
@@ -75,10 +110,12 @@ def load_links(path: Path, url_column: str | None) -> list[str]:
     links: list[str] = []
     suffix = path.suffix.lower()
     if suffix in {".txt", ".list"}:
-        for line in path.read_text(encoding="utf-8").splitlines():
-            normalized = normalize_base(line)
-            if is_probable_url(normalized):
-                links.append(normalized)
+        raw_lines = path.read_text(encoding="utf-8", errors="ignore").splitlines()
+        for line in raw_lines:
+            for candidate in extract_url_candidates_from_line(line):
+                normalized = normalize_base(candidate)
+                if is_probable_url(normalized):
+                    links.append(normalized)
     elif suffix in {".csv", ".xlsx", ".xls"}:
         if suffix == ".csv":
             frame = pd.read_csv(path)
@@ -636,6 +673,13 @@ def main() -> None:
         source_url_column = args.source_url_column or ""
 
     if not links:
+        if input_path.suffix.lower() in {".txt", ".list"} and input_path.exists():
+            preview = "\n".join(input_path.read_text(encoding="utf-8", errors="ignore").splitlines()[:5])
+            raise ValueError(
+                "No valid links were parsed from input file. "
+                "Check file format (expected URLs, one per line or embedded in text). "
+                f"Input: {input_path}\nFirst lines:\n{preview}"
+            )
         write_output(output_path, [], [], links_count=0, ok_count=0, mode=args.mode)
         print(f"No links found in input. Output written: {output_path}")
         return
