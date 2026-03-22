@@ -136,6 +136,39 @@ if [[ ! -f "$TEMPLATE_FILE" ]]; then
   exit 1
 fi
 
+has_onion=false
+if grep -qi "\.onion" "$INPUT_FILE"; then
+  has_onion=true
+fi
+
+if [[ "$has_onion" == true ]]; then
+  if ! "$PYTHON_BIN" - <<'PY' "$TOR_HTTP_PROXY"
+import socket
+import sys
+from urllib.parse import urlparse
+
+proxy = sys.argv[1]
+try:
+    parsed = urlparse(proxy)
+    host = parsed.hostname
+    port = parsed.port
+    if not host or not port:
+        raise ValueError("invalid proxy")
+    with socket.create_connection((host, port), timeout=3):
+        pass
+except Exception:
+    sys.exit(1)
+sys.exit(0)
+PY
+  then
+    echo "Detected .onion links but proxy is unreachable: $TOR_HTTP_PROXY" >&2
+    echo "Start Tor + Privoxy first, then retry:" >&2
+    echo "  sudo apt install -y tor privoxy" >&2
+    echo "  sudo systemctl start tor privoxy" >&2
+    exit 1
+  fi
+fi
+
 echo "Running scraper..."
 echo "  Input: $INPUT_FILE"
 echo "  Output: $OUTPUT_FILE"

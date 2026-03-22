@@ -499,6 +499,8 @@ def main() -> None:
         "DOWNLOAD_TIMEOUT": args.timeout,
         "CONCURRENT_REQUESTS": args.concurrency,
         "RETRY_TIMES": 1,
+        "DOWNLOADER_CLIENT_TLS_VERIFY": False,
+        "HTTPERROR_ALLOW_ALL": True,
         "USER_AGENT": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
         "TELNETCONSOLE_ENABLED": False,
     }
