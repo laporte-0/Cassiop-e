@@ -54,6 +54,14 @@ If posts are blocked by queue/challenge pages, use browser engine:
 ./run.sh -e playwright -m raw
 ```
 
+If CAPTCHA appears, run manual mode:
+
+```bash
+./run.sh -e playwright -m raw --manual-captcha
+```
+
+This opens a visible browser, you solve CAPTCHA once, press ENTER in terminal, then scraping continues with saved session.
+
 For Tor SOCKS proxy (recommended with Playwright):
 
 ```bash
@@ -124,6 +132,12 @@ Switch engine:
 
 ```bash
 ./run.sh -e playwright -m raw
+```
+
+Manual CAPTCHA (Playwright):
+
+```bash
+./run.sh -e playwright -m raw --manual-captcha
 ```
 
 Change proxy without long command:

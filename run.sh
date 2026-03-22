@@ -28,6 +28,7 @@ CONCURRENCY="${CONCURRENCY:-8}"
 TIMEOUT="${TIMEOUT:-20}"
 MODE="${MODE:-raw}"
 ENGINE="${ENGINE:-scrapy}"
+MANUAL_CAPTCHA=false
 INTERACTIVE=false
 
 print_help() {
@@ -44,6 +45,7 @@ Short options:
   -p, --proxy URL        HTTP proxy for onion pages (default: http://127.0.0.1:8118)
   -e, --engine NAME      scrapy | playwright (default: scrapy)
       --browser-proxy    Browser proxy for Playwright (default: socks5://127.0.0.1:9050)
+      --manual-captcha   Playwright only: solve CAPTCHA manually then continue
   -t, --timeout SEC      Request timeout (default: 20)
   -c, --concurrency N    Scrapy concurrency (default: 8)
   -m, --mode MODE        raw | mapped | both (default: raw)
@@ -82,6 +84,10 @@ while [[ $# -gt 0 ]]; do
     -e|--engine)
       ENGINE="$2"
       shift 2
+      ;;
+    --manual-captcha)
+      MANUAL_CAPTCHA=true
+      shift
       ;;
     -t|--timeout)
       TIMEOUT="$2"
@@ -141,6 +147,9 @@ if [[ "$INTERACTIVE" == true ]]; then
 
   read -r -p "Browser proxy for Playwright [$BROWSER_PROXY]: " answer
   BROWSER_PROXY="${answer:-$BROWSER_PROXY}"
+
+  read -r -p "Manual CAPTCHA mode (true/false) [$MANUAL_CAPTCHA]: " answer
+  MANUAL_CAPTCHA="${answer:-$MANUAL_CAPTCHA}"
 
   read -r -p "Timeout seconds [$TIMEOUT]: " answer
   TIMEOUT="${answer:-$TIMEOUT}"
@@ -227,16 +236,24 @@ echo "  Mode: $MODE"
 echo "  Engine: $ENGINE"
 echo "  Proxy: $TOR_HTTP_PROXY"
 echo "  Browser proxy: $BROWSER_PROXY"
+echo "  Manual CAPTCHA: $MANUAL_CAPTCHA"
 
 if [[ "$ENGINE" == "playwright" ]]; then
-  exec "$PYTHON_BIN" "$PLAYWRIGHT_SCRAPER" \
-    --input "$INPUT_FILE" \
-    --template-file "$TEMPLATE_FILE" \
-    --source-file "$SOURCE_FILE" \
-    --browser-proxy "$BROWSER_PROXY" \
-    --timeout "$TIMEOUT" \
-    --mode "$MODE" \
+  PW_ARGS=(
+    --input "$INPUT_FILE"
+    --template-file "$TEMPLATE_FILE"
+    --source-file "$SOURCE_FILE"
+    --browser-proxy "$BROWSER_PROXY"
+    --timeout "$TIMEOUT"
+    --mode "$MODE"
     --output "$OUTPUT_FILE"
+  )
+  if [[ "$MANUAL_CAPTCHA" == "true" ]]; then
+    PW_ARGS+=(--manual-captcha --headful)
+  fi
+
+  exec "$PYTHON_BIN" "$PLAYWRIGHT_SCRAPER" \
+    "${PW_ARGS[@]}"
 else
   exec "$PYTHON_BIN" "$SCRAPER" \
     --input "$INPUT_FILE" \

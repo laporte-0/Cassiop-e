@@ -27,6 +27,7 @@ from crawl_posts_with_scrapy import (
 )
 
 DEFAULT_BROWSER_PROXY = "socks5://127.0.0.1:9050"
+DEFAULT_STATE_FILE = str(Path(__file__).resolve().parent / "playwright_state.json")
 
 
 def parse_args() -> argparse.Namespace:
@@ -41,6 +42,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--wait-ms", type=int, default=3000, help="Extra wait after page load in milliseconds")
     parser.add_argument("--browser-proxy", default=DEFAULT_BROWSER_PROXY, help="Browser proxy URL (example: socks5://127.0.0.1:9050)")
     parser.add_argument("--headful", action="store_true", help="Run browser in visible mode (debug)")
+    parser.add_argument("--manual-captcha", action="store_true", help="Open browser and pause to solve CAPTCHA manually, then reuse saved session")
+    parser.add_argument("--state-file", default=DEFAULT_STATE_FILE, help="Path to Playwright storage state JSON")
     parser.add_argument(
         "--mode",
         choices=["raw", "mapped", "both"],
@@ -86,6 +89,8 @@ def scrape_raw_rows(
     wait_ms: int,
     browser_proxy: str,
     headless: bool,
+    manual_captcha: bool,
+    state_file: str,
 ) -> tuple[list[dict[str, object]], int]:
     raw_rows: list[dict[str, object]] = []
     ok_count = 0
@@ -96,7 +101,24 @@ def scrape_raw_rows(
 
     with sync_playwright() as p:
         browser = p.chromium.launch(**launch_kwargs)
-        context = browser.new_context(ignore_https_errors=True)
+        if Path(state_file).exists():
+            context = browser.new_context(ignore_https_errors=True, storage_state=state_file)
+        else:
+            context = browser.new_context(ignore_https_errors=True)
+
+        if manual_captcha and links:
+            warmup = context.new_page()
+            try:
+                warmup.goto(links[0], wait_until="domcontentloaded", timeout=timeout_seconds * 1000)
+                if wait_ms > 0:
+                    warmup.wait_for_timeout(wait_ms)
+                print("Manual CAPTCHA mode enabled.")
+                print("Solve CAPTCHA/login in the opened browser, then press ENTER here to continue...")
+                input()
+                context.storage_state(path=state_file)
+                print(f"Saved browser session state to: {state_file}")
+            finally:
+                warmup.close()
 
         for link in links:
             page = context.new_page()
@@ -227,6 +249,8 @@ def main() -> None:
         wait_ms=args.wait_ms,
         browser_proxy=args.browser_proxy,
         headless=not args.headful,
+        manual_captcha=bool(args.manual_captcha),
+        state_file=str(args.state_file),
     )
 
     mapped_rows: list[dict[str, object]] = []
