@@ -9,6 +9,7 @@ from typing import Any
 from urllib.parse import urlparse
 
 import pandas as pd
+from bs4 import BeautifulSoup
 from scrapy import Spider
 from scrapy.crawler import CrawlerProcess
 from scrapy.http import Request, Response
@@ -25,6 +26,15 @@ def clean_text(value: str | None) -> str:
     if not value:
         return ""
     return re.sub(r"\s+", " ", str(value)).strip()
+
+
+def extract_body_text_from_html(html: str) -> str:
+    if not html:
+        return ""
+    soup = BeautifulSoup(html, "html.parser")
+    for tag in soup(["script", "style", "noscript"]):
+        tag.decompose()
+    return clean_text(soup.get_text(" ", strip=True))
 
 
 def normalize_base(url: str) -> str:
@@ -553,7 +563,7 @@ class WorkingLinksSpider(Spider):
         title = clean_text(response.css("title::text").get(default=""))
         meta_description = clean_text(response.css("meta[name='description']::attr(content)").get(default=""))
         h1 = clean_text(response.css("h1::text").get(default=""))
-        body_text = clean_text(" ".join(response.css("body *::text").getall()))
+        body_text = extract_body_text_from_html(response.text)
         jsonld_text = clean_text(" ".join(extract_jsonld_texts(response)))
         text_excerpt = clean_text(" ".join([title, meta_description, h1, body_text]))[:2000]
         self.raw_results.append(
