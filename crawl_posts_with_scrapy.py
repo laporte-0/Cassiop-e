@@ -94,10 +94,12 @@ def load_links(path: Path, url_column: str | None) -> list[str]:
 def load_template_attributes(path: Path) -> list[str]:
     frame = pd.read_excel(path, sheet_name="Feuil1", header=None)
     attrs: list[str] = []
+    seen: set[str] = set()
     for value in frame.iloc[1].tolist():
         cleaned = "" if pd.isna(value) else str(value).strip()
-        if cleaned:
+        if cleaned and cleaned not in seen:
             attrs.append(cleaned)
+            seen.add(cleaned)
     return attrs
 
 
@@ -278,38 +280,38 @@ def build_output_row(
 
     result["GANG"] = context_row.get("Ransomware Gang")
     result["Victim Name"] = context_row.get("*Claimed* Victim")
-    result[" The type of breach"] = guess_breach_type(corpus)
+    result["The type of breach"] = guess_breach_type(corpus)
     result["Number of breached records"] = find_records_count(corpus)
     result["Date of the breach"] = context_row.get("Date") or context_row.get("Detection Date (UTC+0)") or find_date(corpus)
 
     pricing_signal = any(token in corpus.lower() for token in ("discount", "deadline", "price", "pay in", "before"))
-    result["Does the gang have a pricing strategy? "] = "yes" if pricing_signal else None
+    result["Does the gang have a pricing strategy?"] = "yes" if pricing_signal else None
     result["if yes what is it?"] = "time-based/conditional ransom" if pricing_signal else None
 
     result["Amount asked"] = find_amount(corpus, paid=False)
     result["amount paid by the victim"] = find_amount(corpus, paid=True)
     result["whether the firm negotiated or not"] = negotiation_flag(corpus)
     result[
-        "In case of negotiation, who is negotiating with hackers: firms managers or the firm hired a security breach management firm"
+        "In case of negotiation, who is negotiating with hackers: firms managers or the firm hired a\xa0security breach management firm"
     ] = negotiation_actor(corpus)
-    result[" Messages exchanged during the negotiation"] = text_excerpt[:500] if negotiation_flag(corpus) else None
+    result["Messages exchanged during the negotiation"] = text_excerpt[:500] if negotiation_flag(corpus) else None
     result["negotiation outcome (firm accepted to pay or not; the gang leaked/sold the data or not)"] = negotiation_outcome(corpus)
     result["what payment method used crypto (BTC or other) or fiat"] = infer_payment_method(corpus)
     result["use or not of Ransomware-as-a-Service (RaaS)"] = infer_raas(corpus)
-    result["Revenues (per year) of the gang "] = None
+    result["Revenues (per year) of the gang"] = None
     result["Attacking stratgy (double extortion, triple extortion, etc.)"] = infer_extortion_strategy(corpus)
     result["Number of attacks per gang (per year)"] = None
     result["lien de la blockchain de paiement"] = find_blockchain_link(html_text)
-    result[" Number of victims that paid the ransom"] = None
+    result["Number of victims that paid the ransom"] = None
     result["Name of the victim"] = context_row.get("*Claimed* Victim")
-    result[" Its location"] = context_row.get("Victim Country")
+    result["Its location"] = context_row.get("Victim Country")
     result["Its listing status"] = context_row.get("listing status")
     result["type of industry"] = context_row.get("Industrial Sector")
     result["whether it has a cybersecurity insurance or not"] = None
     result["whether it has publicly revealed being subject to previous breach or not"] = None
     result["whether it holds bitcoin or other cryptocurrency or not)"] = None
     result["whether the company is publicly traded"] = None
-    result[" ticker/isin code"] = find_ticker(corpus)
+    result["ticker/isin code"] = find_ticker(corpus)
 
     result["_Link Source"] = post_url
     result["_Link Status"] = status
