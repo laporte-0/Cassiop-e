@@ -352,6 +352,26 @@ def infer_gang_from_url(url: str) -> str | None:
     return cleaned or None
 
 
+def detect_intermediary_block(title: str, h1: str, body_text: str, html_text: str) -> str | None:
+    corpus = clean_text(" ".join([title, h1, body_text, html_text])).lower()
+    signals = [
+        "you have been placed in queue",
+        "awaiting forwarding to the platform",
+        "checking your browser",
+        "ddos-guard",
+        "cloudflare",
+        "captcha",
+        "are you human",
+        "access denied",
+        "security check",
+        "challenge-platform",
+    ]
+    for signal in signals:
+        if signal in corpus:
+            return signal
+    return None
+
+
 def extract_jsonld_texts(response: Response) -> list[str]:
     blocks: list[str] = []
     for content in response.css('script[type="application/ld+json"]::text').getall():
@@ -522,6 +542,7 @@ class WorkingLinksSpider(Spider):
         self.output_path = Path(output_path)
         self.tor_proxy = tor_proxy
         self.mode = mode
+        self.max_block_retries = 2
         self.raw_results: list[dict[str, Any]] = []
         self.ok_count = 0
 
@@ -566,12 +587,28 @@ class WorkingLinksSpider(Spider):
         body_text = extract_body_text_from_html(response.text)
         jsonld_text = clean_text(" ".join(extract_jsonld_texts(response)))
         text_excerpt = clean_text(" ".join([title, meta_description, h1, body_text]))[:2000]
+        block_reason = detect_intermediary_block(title, h1, body_text, response.text)
+
+        if block_reason:
+            current_retry = int(response.meta.get("queue_retry") or 0)
+            if current_retry < self.max_block_retries:
+                retry_meta = dict(response.meta)
+                retry_meta["queue_retry"] = current_retry + 1
+                yield Request(
+                    url=source_url,
+                    callback=self.parse_page,
+                    errback=self.on_error,
+                    dont_filter=True,
+                    meta=retry_meta,
+                )
+                return
+
         self.raw_results.append(
             {
                 "_Link Source": source_url,
-                "_Link Status": "WORKING",
+                "_Link Status": "BLOCKED_INTERMEDIARY" if block_reason else "WORKING",
                 "_HTTP Status Code": response.status,
-                "_Error": None,
+                "_Error": f"Intermediary page detected: {block_reason}" if block_reason else None,
                 "_Final URL": response.url,
                 "_Title": title,
                 "_Meta Description": meta_description,
