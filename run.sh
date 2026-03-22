@@ -9,21 +9,25 @@ REQ_FILE="$SCRIPT_DIR/requirements.txt"
 PYTHON_BIN="$VENV_DIR/bin/python"
 PIP_BIN="$VENV_DIR/bin/pip"
 SCRAPER="$SCRIPT_DIR/crawl_posts_with_scrapy.py"
+PLAYWRIGHT_SCRAPER="$SCRIPT_DIR/crawl_posts_with_playwright.py"
 
 DEFAULT_INPUT="$SCRIPT_DIR/working_links.txt"
 DEFAULT_TEMPLATE="$SCRIPT_DIR/Fichier de données.xlsx"
 DEFAULT_SOURCE="$SCRIPT_DIR/Cassiopée Envoi2 Cactus à CryptOn.xlsx"
 DEFAULT_OUTPUT="$SCRIPT_DIR/resultats_posts_scraped.xlsx"
 DEFAULT_PROXY="http://127.0.0.1:8118"
+DEFAULT_BROWSER_PROXY="socks5://127.0.0.1:9050"
 
 INPUT_FILE="${INPUT_FILE:-$DEFAULT_INPUT}"
 TEMPLATE_FILE="${TEMPLATE_FILE:-$DEFAULT_TEMPLATE}"
 SOURCE_FILE="${SOURCE_FILE:-$DEFAULT_SOURCE}"
 OUTPUT_FILE="${OUTPUT_FILE:-$DEFAULT_OUTPUT}"
 TOR_HTTP_PROXY="${TOR_HTTP_PROXY:-$DEFAULT_PROXY}"
+BROWSER_PROXY="${BROWSER_PROXY:-$DEFAULT_BROWSER_PROXY}"
 CONCURRENCY="${CONCURRENCY:-8}"
 TIMEOUT="${TIMEOUT:-20}"
 MODE="${MODE:-raw}"
+ENGINE="${ENGINE:-scrapy}"
 INTERACTIVE=false
 
 print_help() {
@@ -38,6 +42,8 @@ Short options:
   -n, --input FILE       Input links file (.txt/.csv/.xlsx)
   -o, --output FILE      Output Excel file
   -p, --proxy URL        HTTP proxy for onion pages (default: http://127.0.0.1:8118)
+  -e, --engine NAME      scrapy | playwright (default: scrapy)
+      --browser-proxy    Browser proxy for Playwright (default: socks5://127.0.0.1:9050)
   -t, --timeout SEC      Request timeout (default: 20)
   -c, --concurrency N    Scrapy concurrency (default: 8)
   -m, --mode MODE        raw | mapped | both (default: raw)
@@ -48,6 +54,7 @@ Short options:
 Examples:
   ./run.sh
   ./run.sh -m both
+  ./run.sh -e playwright -m raw
   ./run.sh -i
   ./run.sh -n working_links.txt -o resultats_posts_scraped.xlsx
   TOR_HTTP_PROXY="http://127.0.0.1:8118" ./run.sh
@@ -72,6 +79,10 @@ while [[ $# -gt 0 ]]; do
       TOR_HTTP_PROXY="$2"
       shift 2
       ;;
+    -e|--engine)
+      ENGINE="$2"
+      shift 2
+      ;;
     -t|--timeout)
       TIMEOUT="$2"
       shift 2
@@ -90,6 +101,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --source)
       SOURCE_FILE="$2"
+      shift 2
+      ;;
+    --browser-proxy)
+      BROWSER_PROXY="$2"
       shift 2
       ;;
     -h|--help)
@@ -121,6 +136,12 @@ if [[ "$INTERACTIVE" == true ]]; then
   read -r -p "HTTP proxy for onion pages [$TOR_HTTP_PROXY]: " answer
   TOR_HTTP_PROXY="${answer:-$TOR_HTTP_PROXY}"
 
+  read -r -p "Engine (scrapy|playwright) [$ENGINE]: " answer
+  ENGINE="${answer:-$ENGINE}"
+
+  read -r -p "Browser proxy for Playwright [$BROWSER_PROXY]: " answer
+  BROWSER_PROXY="${answer:-$BROWSER_PROXY}"
+
   read -r -p "Timeout seconds [$TIMEOUT]: " answer
   TIMEOUT="${answer:-$TIMEOUT}"
 
@@ -136,8 +157,18 @@ if [[ "$MODE" != "raw" && "$MODE" != "mapped" && "$MODE" != "both" ]]; then
   exit 1
 fi
 
+if [[ "$ENGINE" != "scrapy" && "$ENGINE" != "playwright" ]]; then
+  echo "Invalid engine: $ENGINE (expected scrapy or playwright)" >&2
+  exit 1
+fi
+
 if [[ ! -f "$SCRAPER" ]]; then
   echo "Missing scraper file: $SCRAPER" >&2
+  exit 1
+fi
+
+if [[ ! -f "$PLAYWRIGHT_SCRAPER" ]]; then
+  echo "Missing scraper file: $PLAYWRIGHT_SCRAPER" >&2
   exit 1
 fi
 
@@ -156,7 +187,7 @@ if grep -qi "\.onion" "$INPUT_FILE"; then
   has_onion=true
 fi
 
-if [[ "$has_onion" == true ]]; then
+if [[ "$has_onion" == true && "$ENGINE" == "scrapy" ]]; then
   if ! "$PYTHON_BIN" - <<'PY' "$TOR_HTTP_PROXY"
 import socket
 import sys
@@ -184,18 +215,36 @@ PY
   fi
 fi
 
+if [[ "$ENGINE" == "playwright" ]]; then
+  "$PIP_BIN" install -q playwright
+  "$PYTHON_BIN" -m playwright install chromium >/dev/null 2>&1 || true
+fi
+
 echo "Running scraper..."
 echo "  Input: $INPUT_FILE"
 echo "  Output: $OUTPUT_FILE"
 echo "  Mode: $MODE"
+echo "  Engine: $ENGINE"
 echo "  Proxy: $TOR_HTTP_PROXY"
+echo "  Browser proxy: $BROWSER_PROXY"
 
-exec "$PYTHON_BIN" "$SCRAPER" \
-  --input "$INPUT_FILE" \
-  --template-file "$TEMPLATE_FILE" \
-  --source-file "$SOURCE_FILE" \
-  --tor-proxy "$TOR_HTTP_PROXY" \
-  --timeout "$TIMEOUT" \
-  --concurrency "$CONCURRENCY" \
-  --mode "$MODE" \
-  --output "$OUTPUT_FILE"
+if [[ "$ENGINE" == "playwright" ]]; then
+  exec "$PYTHON_BIN" "$PLAYWRIGHT_SCRAPER" \
+    --input "$INPUT_FILE" \
+    --template-file "$TEMPLATE_FILE" \
+    --source-file "$SOURCE_FILE" \
+    --browser-proxy "$BROWSER_PROXY" \
+    --timeout "$TIMEOUT" \
+    --mode "$MODE" \
+    --output "$OUTPUT_FILE"
+else
+  exec "$PYTHON_BIN" "$SCRAPER" \
+    --input "$INPUT_FILE" \
+    --template-file "$TEMPLATE_FILE" \
+    --source-file "$SOURCE_FILE" \
+    --tor-proxy "$TOR_HTTP_PROXY" \
+    --timeout "$TIMEOUT" \
+    --concurrency "$CONCURRENCY" \
+    --mode "$MODE" \
+    --output "$OUTPUT_FILE"
+fi

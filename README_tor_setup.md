@@ -48,6 +48,18 @@ Or both in one file:
 ./run.sh -m both
 ```
 
+If posts are blocked by queue/challenge pages, use browser engine:
+
+```bash
+./run.sh -e playwright -m raw
+```
+
+For Tor SOCKS proxy (recommended with Playwright):
+
+```bash
+BROWSER_PROXY="socks5://127.0.0.1:9050" ./run.sh -e playwright -m raw
+```
+
 If you need custom files:
 ```bash
 ./run.sh -i
@@ -75,6 +87,8 @@ The Scrapy script expects an HTTP proxy for onion pages (for example Tor + Privo
 - `http://127.0.0.1:8118`
 
 If your stack is SOCKS-only, keep using the existing non-Scrapy flow or add an HTTP bridge.
+
+Playwright engine supports SOCKS directly and is better when pages show queue/challenge protection.
 
 ## 3) Run (short commands)
 
@@ -104,6 +118,12 @@ Short custom run example:
 
 ```bash
 ./run.sh -n working_links.txt -o result.xlsx
+```
+
+Switch engine:
+
+```bash
+./run.sh -e playwright -m raw
 ```
 
 Change proxy without long command:
