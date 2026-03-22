@@ -5,3 +5,11 @@ __pycache__/
 *.pyd
 *.log
 .DS_Store
+
+# Temporary output files (generated during runs)
+working_links.txt
+resultats_posts_scraped.xlsx
+crawled.txt
+posts_test_report.txt
+base_urls_checked.csv
+resultats_liens_et_extraction.xlsx
