@@ -36,6 +36,10 @@ def normalize_base(url: str) -> str:
     return value.rstrip("/")
 
 
+def extract_host(url: str) -> str:
+    return (urlparse(url).hostname or "").lower().strip()
+
+
 def is_onion(url: str) -> bool:
     host = (urlparse(url).hostname or "").lower()
     return host.endswith(".onion")
@@ -224,6 +228,83 @@ def find_ticker(text: str) -> str | None:
     return None
 
 
+def infer_victim_name(title: str, h1: str, meta_description: str) -> str | None:
+    for candidate in (h1, title, meta_description):
+        text = clean_text(candidate)
+        if not text:
+            continue
+        for sep in (" - ", " | ", ": "):
+            if sep in text:
+                left = clean_text(text.split(sep, 1)[0])
+                if 3 <= len(left) <= 120:
+                    return left
+        if 3 <= len(text) <= 120:
+            return text
+    return None
+
+
+def infer_industry(text: str) -> str | None:
+    low = text.lower()
+    mapping = {
+        "health": "Healthcare",
+        "hospital": "Healthcare",
+        "bank": "Finance",
+        "insurance": "Insurance",
+        "retail": "Retail",
+        "manufactur": "Manufacturing",
+        "energy": "Energy",
+        "oil": "Energy",
+        "gas": "Energy",
+        "government": "Public Sector",
+        "education": "Education",
+        "school": "Education",
+        "university": "Education",
+        "telecom": "Telecommunications",
+        "transport": "Transportation",
+        "logistics": "Logistics",
+        "pharma": "Pharmaceutical",
+        "technology": "Technology",
+        "software": "Technology",
+    }
+    for key, value in mapping.items():
+        if key in low:
+            return value
+    return None
+
+
+def infer_location(text: str) -> str | None:
+    countries = [
+        "united states", "usa", "canada", "france", "germany", "italy", "spain", "uk", "united kingdom",
+        "netherlands", "belgium", "switzerland", "sweden", "norway", "denmark", "finland", "poland",
+        "romania", "ukraine", "russia", "china", "japan", "india", "singapore", "australia", "brazil",
+        "mexico", "argentina", "turkey", "israel", "uae", "saudi arabia", "south africa",
+    ]
+    low = text.lower()
+    for country in countries:
+        if country in low:
+            return country.title()
+    return None
+
+
+def infer_listing_status(text: str) -> tuple[str | None, str | None]:
+    low = text.lower()
+    ticker = find_ticker(text)
+    if "publicly traded" in low or "listed" in low or ticker:
+        return "listed", "yes"
+    if "private company" in low or "privately held" in low:
+        return "private", "no"
+    return None, None
+
+
+def infer_gang_from_url(url: str) -> str | None:
+    host = extract_host(url)
+    if not host:
+        return None
+    first_label = host.split(".", 1)[0]
+    cleaned = re.sub(r"[^a-zA-Z0-9_-]", "", first_label)
+    return cleaned or None
+
+
 def extract_jsonld_texts(response: Response) -> list[str]:
     blocks: list[str] = []
     for content in response.css('script[type="application/ld+json"]::text').getall():
@@ -256,9 +337,20 @@ def extract_context_row(source_frame: pd.DataFrame, url: str, url_column: str) -
 
     normalized_target = normalize_base(url)
     subset = source_frame[source_frame[url_column].astype(str).map(lambda x: normalize_base(x) == normalized_target)]
-    if subset.empty:
+    if not subset.empty:
+        return subset.iloc[0].to_dict()
+
+    target_host = extract_host(url)
+    if not target_host:
         return {}
-    return subset.iloc[0].to_dict()
+
+    host_subset = source_frame[
+        source_frame[url_column].astype(str).map(lambda x: extract_host(normalize_base(x)) == target_host)
+    ]
+    if not host_subset.empty:
+        return host_subset.iloc[0].to_dict()
+
+    return {}
 
 
 def build_output_row(
@@ -277,9 +369,14 @@ def build_output_row(
 ) -> dict[str, Any]:
     result: dict[str, Any] = {attr: None for attr in attributes}
     corpus = clean_text(" ".join([page_title, meta_description, h1, text_excerpt, html_text]))
+    inferred_victim = infer_victim_name(page_title, h1, meta_description)
+    inferred_gang = infer_gang_from_url(final_url or post_url)
+    inferred_industry = infer_industry(corpus)
+    inferred_location = infer_location(corpus)
+    inferred_listing, inferred_public_traded = infer_listing_status(corpus)
 
-    result["GANG"] = context_row.get("Ransomware Gang")
-    result["Victim Name"] = context_row.get("*Claimed* Victim")
+    result["GANG"] = context_row.get("Ransomware Gang") or inferred_gang
+    result["Victim Name"] = context_row.get("*Claimed* Victim") or inferred_victim
     result["The type of breach"] = guess_breach_type(corpus)
     result["Number of breached records"] = find_records_count(corpus)
     result["Date of the breach"] = context_row.get("Date") or context_row.get("Detection Date (UTC+0)") or find_date(corpus)
@@ -303,14 +400,14 @@ def build_output_row(
     result["Number of attacks per gang (per year)"] = None
     result["lien de la blockchain de paiement"] = find_blockchain_link(html_text)
     result["Number of victims that paid the ransom"] = None
-    result["Name of the victim"] = context_row.get("*Claimed* Victim")
-    result["Its location"] = context_row.get("Victim Country")
-    result["Its listing status"] = context_row.get("listing status")
-    result["type of industry"] = context_row.get("Industrial Sector")
+    result["Name of the victim"] = context_row.get("*Claimed* Victim") or inferred_victim
+    result["Its location"] = context_row.get("Victim Country") or inferred_location
+    result["Its listing status"] = context_row.get("listing status") or inferred_listing
+    result["type of industry"] = context_row.get("Industrial Sector") or inferred_industry
     result["whether it has a cybersecurity insurance or not"] = None
     result["whether it has publicly revealed being subject to previous breach or not"] = None
     result["whether it holds bitcoin or other cryptocurrency or not)"] = None
-    result["whether the company is publicly traded"] = None
+    result["whether the company is publicly traded"] = inferred_public_traded
     result["ticker/isin code"] = find_ticker(corpus)
 
     result["_Link Source"] = post_url
