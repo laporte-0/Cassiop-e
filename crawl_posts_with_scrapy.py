@@ -423,18 +423,32 @@ def build_output_row(
     return result
 
 
-def write_output(path: Path, extracted_rows: list[dict[str, Any]], links_count: int, ok_count: int) -> None:
+def write_output(
+    path: Path,
+    raw_rows: list[dict[str, Any]],
+    extracted_rows: list[dict[str, Any]],
+    links_count: int,
+    ok_count: int,
+    mode: str,
+) -> None:
+    raw_df = pd.DataFrame(raw_rows)
     extracted_df = pd.DataFrame(extracted_rows)
     summary_df = pd.DataFrame(
         [
+            {"metric": "mode", "value": mode},
             {"metric": "total_links", "value": links_count},
             {"metric": "working_links", "value": ok_count},
             {"metric": "failed_links", "value": links_count - ok_count},
+            {"metric": "raw_rows", "value": len(raw_rows)},
+            {"metric": "mapped_rows", "value": len(extracted_rows)},
             {"metric": "generated_at_utc", "value": datetime.now(UTC).isoformat(timespec="seconds").replace("+00:00", "Z")},
         ]
     )
     with pd.ExcelWriter(path, engine="openpyxl") as writer:
-        extracted_df.to_excel(writer, sheet_name="Extracted Data", index=False)
+        if mode in {"raw", "both"}:
+            raw_df.to_excel(writer, sheet_name="Raw Posts", index=False)
+        if mode in {"mapped", "both"}:
+            extracted_df.to_excel(writer, sheet_name="Extracted Data", index=False)
         summary_df.to_excel(writer, sheet_name="Summary", index=False)
 
 
@@ -449,6 +463,7 @@ class WorkingLinksSpider(Spider):
         source_url_column: str,
         output_path: str,
         tor_proxy: str,
+        mode: str,
         *args,
         **kwargs,
     ):
@@ -459,7 +474,8 @@ class WorkingLinksSpider(Spider):
         self.source_url_column = source_url_column
         self.output_path = Path(output_path)
         self.tor_proxy = tor_proxy
-        self.results: list[dict[str, Any]] = []
+        self.mode = mode
+        self.raw_results: list[dict[str, Any]] = []
         self.ok_count = 0
 
     def start_requests(self):
@@ -478,21 +494,21 @@ class WorkingLinksSpider(Spider):
     def parse_page(self, response: Response):
         source_url = str(response.meta.get("source_url") or response.url)
         if not (200 <= response.status < 400):
-            self.results.append(
-                build_output_row(
-                    attributes=self.attributes,
-                    post_url=source_url,
-                    status="NOT_WORKING",
-                    status_code=response.status,
-                    error=f"HTTP {response.status}",
-                    final_url=response.url,
-                    page_title="",
-                    meta_description="",
-                    h1="",
-                    text_excerpt="",
-                    html_text="",
-                    context_row=extract_context_row(self.source_frame, source_url, self.source_url_column),
-                )
+            self.raw_results.append(
+                {
+                    "_Link Source": source_url,
+                    "_Link Status": "NOT_WORKING",
+                    "_HTTP Status Code": response.status,
+                    "_Error": f"HTTP {response.status}",
+                    "_Final URL": response.url,
+                    "_Title": "",
+                    "_Meta Description": "",
+                    "_H1": "",
+                    "_Text Excerpt": "",
+                    "_Body Text": "",
+                    "_JSONLD Text": "",
+                    "_Scraped At": datetime.now(UTC).isoformat(timespec="seconds").replace("+00:00", "Z"),
+                }
             )
             return
 
@@ -503,48 +519,76 @@ class WorkingLinksSpider(Spider):
         body_text = clean_text(" ".join(response.css("body *::text").getall()))
         jsonld_text = clean_text(" ".join(extract_jsonld_texts(response)))
         text_excerpt = clean_text(" ".join([title, meta_description, h1, body_text]))[:2000]
-        html_text = clean_text(" ".join([response.text, jsonld_text]))
-        context_row = extract_context_row(self.source_frame, source_url, self.source_url_column)
-
-        self.results.append(
-            build_output_row(
-                attributes=self.attributes,
-                post_url=source_url,
-                status="WORKING",
-                status_code=response.status,
-                error=None,
-                final_url=response.url,
-                page_title=title,
-                meta_description=meta_description,
-                h1=h1,
-                text_excerpt=text_excerpt,
-                html_text=html_text,
-                context_row=context_row,
-            )
+        self.raw_results.append(
+            {
+                "_Link Source": source_url,
+                "_Link Status": "WORKING",
+                "_HTTP Status Code": response.status,
+                "_Error": None,
+                "_Final URL": response.url,
+                "_Title": title,
+                "_Meta Description": meta_description,
+                "_H1": h1,
+                "_Text Excerpt": text_excerpt,
+                "_Body Text": body_text,
+                "_JSONLD Text": jsonld_text,
+                "_Scraped At": datetime.now(UTC).isoformat(timespec="seconds").replace("+00:00", "Z"),
+            }
         )
 
     def on_error(self, failure):
         request = failure.request
         source_url = str(request.meta.get("source_url") or request.url)
-        self.results.append(
-            build_output_row(
-                attributes=self.attributes,
-                post_url=source_url,
-                status="NOT_WORKING",
-                status_code=None,
-                error=clean_text(str(failure.value)),
-                final_url=None,
-                page_title="",
-                meta_description="",
-                h1="",
-                text_excerpt="",
-                html_text="",
-                context_row=extract_context_row(self.source_frame, source_url, self.source_url_column),
-            )
+        self.raw_results.append(
+            {
+                "_Link Source": source_url,
+                "_Link Status": "NOT_WORKING",
+                "_HTTP Status Code": None,
+                "_Error": clean_text(str(failure.value)),
+                "_Final URL": None,
+                "_Title": "",
+                "_Meta Description": "",
+                "_H1": "",
+                "_Text Excerpt": "",
+                "_Body Text": "",
+                "_JSONLD Text": "",
+                "_Scraped At": datetime.now(UTC).isoformat(timespec="seconds").replace("+00:00", "Z"),
+            }
         )
 
     def closed(self, reason: str):
-        write_output(self.output_path, self.results, links_count=len(self.links), ok_count=self.ok_count)
+        extracted_rows: list[dict[str, Any]] = []
+        if self.mode in {"mapped", "both"}:
+            for raw in self.raw_results:
+                post_url = str(raw.get("_Link Source") or "")
+                final_url = raw.get("_Final URL")
+                context_row = extract_context_row(self.source_frame, post_url, self.source_url_column)
+                html_text = clean_text(" ".join([str(raw.get("_Body Text") or ""), str(raw.get("_JSONLD Text") or "")]))
+                extracted_rows.append(
+                    build_output_row(
+                        attributes=self.attributes,
+                        post_url=post_url,
+                        status=str(raw.get("_Link Status") or "NOT_WORKING"),
+                        status_code=raw.get("_HTTP Status Code"),
+                        error=raw.get("_Error"),
+                        final_url=str(final_url) if final_url else None,
+                        page_title=str(raw.get("_Title") or ""),
+                        meta_description=str(raw.get("_Meta Description") or ""),
+                        h1=str(raw.get("_H1") or ""),
+                        text_excerpt=str(raw.get("_Text Excerpt") or ""),
+                        html_text=html_text,
+                        context_row=context_row,
+                    )
+                )
+
+        write_output(
+            self.output_path,
+            raw_rows=self.raw_results,
+            extracted_rows=extracted_rows,
+            links_count=len(self.links),
+            ok_count=self.ok_count,
+            mode=self.mode,
+        )
 
 
 def parse_args() -> argparse.Namespace:
@@ -562,6 +606,12 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--timeout", type=int, default=20, help="Download timeout in seconds")
     parser.add_argument("--concurrency", type=int, default=8, help="Concurrent requests")
+    parser.add_argument(
+        "--mode",
+        choices=["raw", "mapped", "both"],
+        default="both",
+        help="Output mode: raw only, mapped only, or both sheets",
+    )
     return parser.parse_args()
 
 
@@ -586,7 +636,7 @@ def main() -> None:
         source_url_column = args.source_url_column or ""
 
     if not links:
-        write_output(output_path, [], links_count=0, ok_count=0)
+        write_output(output_path, [], [], links_count=0, ok_count=0, mode=args.mode)
         print(f"No links found in input. Output written: {output_path}")
         return
 
@@ -611,6 +661,7 @@ def main() -> None:
         source_url_column=source_url_column,
         output_path=str(output_path),
         tor_proxy=args.tor_proxy,
+        mode=args.mode,
     )
     process.start()
 

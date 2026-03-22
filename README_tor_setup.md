@@ -26,10 +26,26 @@ chmod +x run.sh
 sudo apt install -y tor privoxy
 sudo systemctl start tor privoxy
 
-# 5. Run with one simple command
+# 5. Run with one simple command (raw extraction first)
 ./run.sh
 
 # Output: resultats_posts_scraped.xlsx (in same folder)
+```
+
+By default, `./run.sh` uses `mode=raw` and creates:
+
+- `Raw Posts` sheet: direct extracted data from each post (title, h1, body text, status, errors)
+
+Then run mapping step:
+
+```bash
+./run.sh -m mapped
+```
+
+Or both in one file:
+
+```bash
+./run.sh -m both
 ```
 
 If you need custom files:
@@ -37,6 +53,8 @@ If you need custom files:
 ./run.sh -i
 # or
 ./run.sh -n your_links.csv -o my_output.xlsx
+# or
+./run.sh -m both
 ```
 
 ---

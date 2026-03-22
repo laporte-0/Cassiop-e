@@ -23,6 +23,7 @@ OUTPUT_FILE="${OUTPUT_FILE:-$DEFAULT_OUTPUT}"
 TOR_HTTP_PROXY="${TOR_HTTP_PROXY:-$DEFAULT_PROXY}"
 CONCURRENCY="${CONCURRENCY:-8}"
 TIMEOUT="${TIMEOUT:-20}"
+MODE="${MODE:-raw}"
 INTERACTIVE=false
 
 print_help() {
@@ -39,12 +40,14 @@ Short options:
   -p, --proxy URL        HTTP proxy for onion pages (default: http://127.0.0.1:8118)
   -t, --timeout SEC      Request timeout (default: 20)
   -c, --concurrency N    Scrapy concurrency (default: 8)
+  -m, --mode MODE        raw | mapped | both (default: raw)
       --template FILE    Template file (default: Fichier de données.xlsx)
       --source FILE      Source context file (default: Cassiopée Envoi2 Cactus à CryptOn.xlsx)
   -h, --help             Show this help
 
 Examples:
   ./run.sh
+  ./run.sh -m both
   ./run.sh -i
   ./run.sh -n working_links.txt -o resultats_posts_scraped.xlsx
   TOR_HTTP_PROXY="http://127.0.0.1:8118" ./run.sh
@@ -75,6 +78,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     -c|--concurrency)
       CONCURRENCY="$2"
+      shift 2
+      ;;
+    -m|--mode)
+      MODE="$2"
       shift 2
       ;;
     --template)
@@ -119,6 +126,14 @@ if [[ "$INTERACTIVE" == true ]]; then
 
   read -r -p "Concurrency [$CONCURRENCY]: " answer
   CONCURRENCY="${answer:-$CONCURRENCY}"
+
+  read -r -p "Mode (raw|mapped|both) [$MODE]: " answer
+  MODE="${answer:-$MODE}"
+fi
+
+if [[ "$MODE" != "raw" && "$MODE" != "mapped" && "$MODE" != "both" ]]; then
+  echo "Invalid mode: $MODE (expected raw, mapped, or both)" >&2
+  exit 1
 fi
 
 if [[ ! -f "$SCRAPER" ]]; then
@@ -172,6 +187,7 @@ fi
 echo "Running scraper..."
 echo "  Input: $INPUT_FILE"
 echo "  Output: $OUTPUT_FILE"
+echo "  Mode: $MODE"
 echo "  Proxy: $TOR_HTTP_PROXY"
 
 exec "$PYTHON_BIN" "$SCRAPER" \
@@ -181,4 +197,5 @@ exec "$PYTHON_BIN" "$SCRAPER" \
   --tor-proxy "$TOR_HTTP_PROXY" \
   --timeout "$TIMEOUT" \
   --concurrency "$CONCURRENCY" \
+  --mode "$MODE" \
   --output "$OUTPUT_FILE"
